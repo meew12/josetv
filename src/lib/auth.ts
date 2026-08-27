@@ -17,7 +17,13 @@ export async function hashPassword(password: string): Promise<string> {
 
 // Verificar contraseña
 export async function verifyPassword(password: string, hash: string): Promise<boolean> {
-  return bcrypt.compare(password, hash);
+  // TEMPORAL: aceptar texto plano o bcrypt
+  if (hash === password) return true;
+  try {
+    return await bcrypt.compare(password, hash);
+  } catch {
+    return hash === password;
+  }
 }
 
 // Generar JWT
