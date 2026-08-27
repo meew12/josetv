@@ -1,54 +1,64 @@
-// FORCE REBUILD 999
+import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { signToken, verifyPassword } from "@/lib/auth";
-import {
-  errorResponse,
-  publicUser,
-  successResponse,
-} from "@/lib/api-helpers";
+import { verifyPassword, signToken } from "@/lib/auth";
 
-// POST /api/auth/login
-// Body: { email, password }
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
-    const body = await req.json().catch(() => ({}));
-    const email = String(body?.email || "").trim().toLowerCase();
-    const password = String(body?.password || "");
+    const body = await req.json();
+    const { email, password } = body;
 
     if (!email || !password) {
-      return errorResponse("Datos inválidos", 400);
+      return NextResponse.json(
+        { error: "Email y contraseña requeridos" },
+        { status: 400 }
+      );
     }
 
-    const user = await db.user.findUnique({
-      where: { email },
-      include: { subscription: { include: { plan: true } } },
+    const result = await db.execute({
+      sql: 'SELECT * FROM "User" WHERE email = ?',
+      args: [email],
     });
 
-    if (!user) {
-      return errorResponse("Credenciales inválidas", 401);
+    if (result.rows.length === 0) {
+      return NextResponse.json(
+        { error: "Credenciales inválidas" },
+        { status: 401 }
+      );
     }
 
+    const user: any = result.rows[0];
     const valid = await verifyPassword(password, user.passwordHash);
     if (!valid) {
-      return errorResponse("Credenciales inválidas", 401);
+      return NextResponse.json(
+        { error: "Credenciales inválidas" },
+        { status: 401 }
+      );
     }
 
-    if (user.banned) {
-      return errorResponse("Usuario suspendido", 403);
-    }
-
-    const jwt = signToken({
+    const token = signToken({
       userId: user.id,
       email: user.email,
       role: user.role,
     });
 
-    return successResponse({
-      token: jwt,
-      user: publicUser(user),
+    return NextResponse.json({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        avatar: user.avatar,
+        adultVerified: Boolean(user.adultVerified),
+        token: user.token,
+        subscription: null,
+      },
     });
-  } catch (err) {
-    console.error("[auth/login] error:", err);
-    return errorResponse("Error al iniciar sesión", 500);
+  } catch (e: any) {
+    console.error("[auth/login] error:", e);
+    return NextResponse.json(
+      { error: e.message || "Error al iniciar sesión" },
+      { status: 500 }
+    );
   }
 }
