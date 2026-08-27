@@ -1,7 +1,6 @@
 // JOSE DEMO - Plataforma de streaming tipo Netflix
 generator client {
-  provider        = "prisma-client-js"
-  previewFeatures = ["driverAdapters"]
+  provider = "prisma-client-js"
 }
 
 datasource db {
@@ -126,7 +125,7 @@ model Content {
   watchlist     Watchlist[]
   history       WatchHistory[]
   reviews       Review[]
-  reactions    Reaction[]
+  reactions     Reaction[]
 }
 
 model Series {
