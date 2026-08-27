@@ -1,0 +1,692 @@
+     1→     1→"use client";
+     2→     2→import { useQuery } from "@tanstack/react-query";
+     3→     3→import { useNav } from "@/lib/nav-store";
+     4→     4→import { useAuth, type AuthUser } from "@/lib/auth-store";
+     5→     5→import { api, apiFetch, ApiError } from "@/lib/api-client";
+     6→     6→import { Plan, Payment } from "@/lib/types";
+     7→     7→import { AppHeader } from "@/components/app-header";
+     8→     8→import { AppFooter } from "@/components/app-footer";
+     9→     9→import { Button } from "@/components/ui/button";
+    10→    10→import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+    11→    11→import { Badge } from "@/components/ui/badge";
+    12→    12→import { Progress } from "@/components/ui/progress";
+    13→    13→import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+    14→    14→import { Separator } from "@/components/ui/separator";
+    15→    15→import {
+    16→    16→  Dialog,
+    17→    17→  DialogContent,
+    18→    18→  DialogDescription,
+    19→    19→  DialogFooter,
+    20→    20→  DialogHeader,
+    21→    21→  DialogTitle,
+    22→    22→} from "@/components/ui/dialog";
+    23→    23→import { Input } from "@/components/ui/input";
+    24→    24→import { Label } from "@/components/ui/label";
+    25→    25→import { Skeleton } from "@/components/ui/skeleton";
+    26→    26→import { useToast } from "@/hooks/use-toast";
+    27→    27→import {
+    28→    28→  User as UserIcon,
+    29→    29→  Mail,
+    30→    30→  Crown,
+    31→    31→  Calendar,
+    32→    32→  Copy,
+    33→    33→  Check,
+    34→    34→  Shield,
+    35→    35→  ShieldAlert,
+    36→    36→  ShieldCheck,
+    37→    37→  LogOut,
+    38→    38→  Edit2,
+    39→    39→  Coins,
+    40→    40→  CreditCard,
+    41→    41→  Sparkles,
+    42→    42→  Tv,
+    43→    43→  Monitor,
+    44→    44→  AlertCircle,
+    45→    45→  Loader2,
+    46→    46→  Link as LinkIcon,
+    47→    47→} from "lucide-react";
+    48→    48→import { motion } from "framer-motion";
+    49→    49→import { useState } from "react";
+    50→    50→import {
+    51→    51→  formatDate,
+    52→    52→  formatARS,
+    53→    53→  paymentStatusLabel,
+    54→    54→  subscriptionStatusLabel,
+    55→    55→} from "@/lib/format";
+    56→    56→
+    57→    57→interface PaymentsResponse {
+    58→    58→  items: (Payment & {
+    59→    59→    subscription?: { plan: Plan } | null;
+    60→    60→  })[];
+    61→    61→}
+    62→    62→
+    63→    63→interface SubStatusResponse {
+    64→    64→  hasSubscription: boolean;
+    65→    65→  active: boolean;
+    66→    66→  subscription: {
+    67→    67→    id: string;
+    68→    68→    status: string;
+    69→    69→    startDate: string;
+    70→    70→    endDate: string;
+    71→    71→    autoRenew: boolean;
+    72→    72→    daysLeft: number;
+    73→    73→    plan?: Plan;
+    74→    74→  } | null;
+    75→    75→}
+    76→    76→
+    77→    77→export function ProfileView() {
+    78→    78→  const { navigate } = useNav();
+    79→    79→  const { user, setUser, logout } = useAuth();
+    80→    80→  const { toast } = useToast();
+    81→    81→  const [copied, setCopied] = useState(false);
+    82→    82→  const [editOpen, setEditOpen] = useState(false);
+    83→    83→  const [editName, setEditName] = useState(user?.name || "");
+    84→    84→  const [editAvatar, setEditAvatar] = useState(user?.avatar || "");
+    85→    85→  const [savingEdit, setSavingEdit] = useState(false);
+    86→    86→  const [verifyingAdult, setVerifyingAdult] = useState(false);
+    87→    87→
+    88→    88→  // Estado de suscripción fresco
+    89→    89→  const { data: subData, isLoading: subLoading } = useQuery<SubStatusResponse>({
+    90→    90→    queryKey: ["subscription-status"],
+    91→    91→    queryFn: () => api.get<SubStatusResponse>("/subscriptions/status"),
+    92→    92→    staleTime: 30 * 1000,
+    93→    93→  });
+    94→    94→
+    95→    95→  // Historial de pagos
+    96→    96→  const { data: paymentsData, isLoading: paymentsLoading } =
+    97→    97→    useQuery<PaymentsResponse>({
+    98→    98→      queryKey: ["payments"],
+    99→    99→      queryFn: () => api.get<PaymentsResponse>("/payments?limit=20"),
+   100→   100→      staleTime: 30 * 1000,
+   101→   101→    });
+   102→   102→
+   103→   103→  if (!user) {
+   104→   104→    return (
+   105→   105→      <div className="flex min-h-screen flex-col bg-background">
+   106→   106→        <AppHeader />
+   107→   107→        <main className="flex flex-1 flex-col items-center justify-center px-4 pb-20 pt-20 text-center">
+   108→   108→          <p className="text-muted-foreground">
+   109→   109→            Necesitás iniciar sesión para ver tu perfil.
+   110→   110→          </p>
+   111→   111→          <Button className="mt-4" onClick={() => navigate("login")}>
+   112→   112→            Iniciar sesión
+   113→   113→          </Button>
+   114→   114→        </main>
+   115→   115→      </div>
+   116→   116→    );
+   117→   117→  }
+   118→   118→
+   119→   119→  const sub = subData?.subscription;
+   120→   120→  const isActive = subData?.active === true;
+   121→   121→  const daysLeft = sub?.daysLeft ?? 0;
+   122→   122→  // Progreso de la suscripción: días transcurridos sobre el total
+   123→   123→  const subProgress = (() => {
+   124→   124→    if (!sub || !sub.plan) return 0;
+   125→   125→    const plan = sub.plan;
+   126→   126→    const totalDays = plan.durationDays || 30;
+   127→   127→    const elapsed = Math.max(0, totalDays - daysLeft);
+   128→   128→    const pct = totalDays > 0 ? (elapsed / totalDays) * 100 : 0;
+   129→   129→    return Math.min(100, Math.max(0, Math.round(pct)));
+   130→   130→  })();
+   131→   131→
+   132→   132→  const payments = paymentsData?.items || [];
+   133→   133→
+   134→   134→  const copyToken = async () => {
+   135→   135→    const token = user.token || user.accessToken || "";
+   136→   136→    if (!token) return;
+   137→   137→    try {
+   138→   138→      await navigator.clipboard.writeText(token);
+   139→   139→      setCopied(true);
+   140→   140→      setTimeout(() => setCopied(false), 1800);
+   141→   141→      toast({ title: "Token copiado ✓" });
+   142→   142→    } catch {
+   143→   143→      toast({
+   144→   144→        title: "No se pudo copiar",
+   145→   145→        description: "Copiá el token manualmente.",
+   146→   146→        variant: "destructive",
+   147→   147→      });
+   148→   148→    }
+   149→   149→  };
+   150→   150→
+   151→   151→  const handleLogout = () => {
+   152→   152→    logout();
+   153→   153→    setUser(null);
+   154→   154→    toast({ title: "Sesión cerrada" });
+   155→   155→    navigate("landing");
+   156→   156→  };
+   157→   157→
+   158→   158→  const handleSaveEdit = async () => {
+   159→   159→    const trimmedName = editName.trim();
+   160→   160→    if (trimmedName.length < 2) {
+   161→   161→      toast({
+   162→   162→        title: "Nombre inválido",
+   163→   163→        description: "El nombre debe tener al menos 2 caracteres.",
+   164→   164→        variant: "destructive",
+   165→   165→      });
+   166→   166→      return;
+   167→   167→    }
+   168→   168→    setSavingEdit(true);
+   169→   169→    try {
+   170→   170→      const trimmedAvatar = editAvatar.trim();
+   171→   171→      const res = await api.put<{ user: AuthUser }>("/auth/me", {
+   172→   172→        name: trimmedName,
+   173→   173→        avatar: trimmedAvatar || null,
+   174→   174→      });
+   175→   175→      setUser(res.user);
+   176→   176→      setSavingEdit(false);
+   177→   177→      setEditOpen(false);
+   178→   178→      toast({ title: "Perfil actualizado ✓" });
+   179→   179→    } catch (e: any) {
+   180→   180→      setSavingEdit(false);
+   181→   181→      const message =
+   182→   182→        e instanceof ApiError ? e.message : "No se pudo actualizar el perfil";
+   183→   183→      toast({
+   184→   184→        title: "Error al guardar",
+   185→   185→        description: message,
+   186→   186→        variant: "destructive",
+   187→   187→      });
+   188→   188→    }
+   189→   189→  };
+   190→   190→
+   191→   191→  const handleVerifyAdult = async () => {
+   192→   192→    setVerifyingAdult(true);
+   193→   193→    try {
+   194→   194→      const res = await apiFetch<{ user: AuthUser }>("/auth/me", {
+   195→   195→        method: "PATCH",
+   196→   196→        body: JSON.stringify({ adultVerified: true }),
+   197→   197→      });
+   198→   198→      setUser(res.user);
+   199→   199→      toast({ title: "Verificación +18 activada ✓" });
+   200→   200→    } catch (e: any) {
+   201→   201→      const message =
+   202→   202→        e instanceof ApiError ? e.message : "No se pudo verificar";
+   203→   203→      toast({
+   204→   204→        title: "Error",
+   205→   205→        description: message,
+   206→   206→        variant: "destructive",
+   207→   207→      });
+   208→   208→    } finally {
+   209→   209→      setVerifyingAdult(false);
+   210→   210→    }
+   211→   211→  };
+   212→   212→
+   213→   213→  return (
+   214→   214→    <div className="flex min-h-screen flex-col bg-background">
+   215→   215→      <AppHeader />
+   216→   216→      <main className="flex-1">
+   217→   217→        <div className="view-enter mx-auto max-w-4xl px-4 pb-20 pt-20 sm:px-6 md:pb-8 lg:px-8">
+   218→   218→          {/* Title */}
+   219→   219→          <motion.div
+   220→   220→            initial={{ opacity: 0, y: -10 }}
+   221→   221→            animate={{ opacity: 1, y: 0 }}
+   222→   222→            transition={{ duration: 0.3 }}
+   223→   223→            className="mb-6"
+   224→   224→          >
+   225→   225→            <h1 className="flex items-center gap-2 text-2xl font-black sm:text-3xl">
+   226→   226→              <UserIcon className="h-6 w-6 text-primary" />
+   227→   227→              <span className="text-gradient-red">Mi Perfil</span>
+   228→   228→            </h1>
+   229→   229→            <p className="mt-1 text-sm text-muted-foreground">
+   230→   230→              Gestioná tu cuenta, suscripción y métodos de acceso.
+   231→   231→            </p>
+   232→   232→          </motion.div>
+   233→   233→
+   234→   234→          {/* User info card */}
+   235→   235→          <motion.div
+   236→   236→            initial={{ opacity: 0, y: 10 }}
+   237→   237→            animate={{ opacity: 1, y: 0 }}
+   238→   238→            transition={{ duration: 0.3, delay: 0.05 }}
+   239→   239→          >
+   240→   240→            <Card className="card-hover border-border/60 bg-card/60 backdrop-blur">
+   241→   241→              <CardContent className="flex flex-col items-center gap-5 p-5 sm:flex-row sm:p-6">
+   242→   242→                <Avatar className="h-20 w-20 border-2 border-primary/40 sm:h-24 sm:w-24">
+   243→   243→                  {user.avatar ? (
+   244→   244→                    <AvatarImage src={user.avatar} alt={user.name} />
+   245→   245→                  ) : null}
+   246→   246→                  <AvatarFallback className="bg-primary/20 text-2xl font-black text-primary sm:text-3xl">
+   247→   247→                    {user.name?.charAt(0).toUpperCase() || "U"}
+   248→   248→                  </AvatarFallback>
+   249→   249→                </Avatar>
+   250→   250→
+   251→   251→                <div className="flex-1 text-center sm:text-left">
+   252→   252→                  <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
+   253→   253→                    <h2 className="text-xl font-bold text-white sm:text-2xl">
+   254→   254→                      {user.name}
+   255→   255→                    </h2>
+   256→   256→                    {user.role === "ADMIN" && (
+   257→   257→                      <Badge className="bg-yellow-600/90 text-white">
+   258→   258→                        <Shield className="mr-1 h-3 w-3" /> Admin
+   259→   259→                      </Badge>
+   260→   260→                    )}
+   261→   261→                    {isActive && (
+   262→   262→                      <Badge className="bg-primary/90 text-primary-foreground">
+   263→   263→                        <Crown className="mr-1 h-3 w-3" /> Premium
+   264→   264→                      </Badge>
+   265→   265→                    )}
+   266→   266→                    {!user.adultVerified && (
+   267→   267→                      <Badge variant="outline" className="border-yellow-600/50 text-yellow-500">
+   268→   268→                        <ShieldAlert className="mr-1 h-3 w-3" /> No verificado +18
+   269→   269→                      </Badge>
+   270→   270→                    )}
+   271→   271→                  </div>
+   272→   272→                  <div className="mt-2 flex flex-col items-center gap-1 text-sm text-muted-foreground sm:flex-row sm:items-center sm:gap-3">
+   273→   273→                    <span className="flex items-center gap-1.5">
+   274→   274→                      <Mail className="h-3.5 w-3.5" /> {user.email}
+   275→   275→                    </span>
+   276→   276→                  </div>
+   277→   277→                  <div className="mt-1 text-xs text-muted-foreground/80">
+   278→   278→                    Miembro desde{" "}
+   279→   279→                    {user.subscription?.endDate
+   280→   280→                      ? formatDate(user.subscription.endDate)
+   281→   281→                      : "recientemente"}
+   282→   282→                  </div>
+   283→   283→                </div>
+   284→   284→
+   285→   285→                <div className="flex gap-2 sm:flex-col">
+   286→   286→                  <Button
+   287→   287→                    variant="outline"
+   288→   288→                    size="sm"
+   289→   289→                    onClick={() => {
+   290→   290→                      setEditName(user.name);
+   291→   291→                      setEditAvatar(user.avatar || "");
+   292→   292→                      setEditOpen(true);
+   293→   293→                    }}
+   294→   294→                  >
+   295→   295→                    <Edit2 className="mr-1.5 h-3.5 w-3.5" />
+   296→   296→                    Editar
+   297→   297→                  </Button>
+   298→   298→                  <Button
+   299→   299→                    variant="outline"
+   300→   300→                    size="sm"
+   301→   301→                    onClick={handleLogout}
+   302→   302→                    className="text-destructive hover:text-destructive"
+   303→   303→                  >
+   304→   304→                    <LogOut className="mr-1.5 h-3.5 w-3.5" />
+   305→   305→                    Salir
+   306→   306→                  </Button>
+   307→   307→                </div>
+   308→   308→              </CardContent>
+   309→   309→            </Card>
+   310→   310→          </motion.div>
+   311→   311→
+   312→   312→          {/* Grid: subscription + token */}
+   313→   313→          <div className="mt-4 grid gap-4 md:grid-cols-2">
+   314→   314→            {/* Subscription status */}
+   315→   315→            <motion.div
+   316→   316→              initial={{ opacity: 0, y: 10 }}
+   317→   317→              animate={{ opacity: 1, y: 0 }}
+   318→   318→              transition={{ duration: 0.3, delay: 0.1 }}
+   319→   319→            >
+   320→   320→              <Card
+   321→   321→                className={`h-full border-border/60 bg-card/60 backdrop-blur ${
+   322→   322→                  isActive ? "glow-red-sm card-hover" : "card-hover"
+   323→   323→                }`}
+   324→   324→              >
+   325→   325→                <CardHeader>
+   326→   326→                  <CardTitle className="flex items-center gap-2 text-base">
+   327→   327→                    <Crown className="h-4 w-4 text-primary" />
+   328→   328→                    Suscripción
+   329→   329→                  </CardTitle>
+   330→   330→                </CardHeader>
+   331→   331→                <CardContent>
+   332→   332→                  {subLoading ? (
+   333→   333→                    <div className="space-y-2">
+   334→   334→                      <Skeleton className="h-5 w-1/2" />
+   335→   335→                      <Skeleton className="h-4 w-3/4" />
+   336→   336→                      <Skeleton className="h-2 w-full" />
+   337→   337→                    </div>
+   338→   338→                  ) : isActive && sub ? (
+   339→   339→                    <div className="space-y-3">
+   340→   340→                      <div className="flex items-center justify-between">
+   341→   341→                        <div>
+   342→   342→                          <p className="text-lg font-bold text-white">
+   343→   343→                            {sub.plan?.name || "Plan"}
+   344→   344→                          </p>
+   345→   345→                          <p className="text-xs text-muted-foreground">
+   346→   346→                            Estado:{" "}
+   347→   347→                            <span className="font-medium text-green-500">
+   348→   348→                              {subscriptionStatusLabel(sub.status)}
+   349→   349→                            </span>
+   350→   350→                          </p>
+   351→   351→                        </div>
+   352→   352→                        <Badge className="bg-green-600/90 text-white">
+   353→   353→                          <Check className="mr-1 h-3 w-3" /> Activa
+   354→   354→                        </Badge>
+   355→   355→                      </div>
+   356→   356→
+   357→   357→                      {/* Quality + screens */}
+   358→   358→                      <div className="flex flex-wrap gap-2 text-xs">
+   359→   359→                        {sub.plan?.quality && (
+   360→   360→                          <span className="flex items-center gap-1 rounded bg-primary/15 px-2 py-1 text-primary">
+   361→   361→                            <Sparkles className="h-3 w-3" /> {sub.plan.quality}
+   362→   362→                          </span>
+   363→   363→                        )}
+   364→   364→                        {sub.plan?.screens && (
+   365→   365→                          <span className="flex items-center gap-1 rounded bg-secondary px-2 py-1 text-secondary-foreground">
+   366→   366→                            <Tv className="h-3 w-3" /> {sub.plan.screens} pantallas
+   367→   367→                          </span>
+   368→   368→                        )}
+   369→   369→                      </div>
+   370→   370→
+   371→   371→                      <Separator />
+   372→   372→
+   373→   373→                      {/* Days left */}
+   374→   374→                      <div>
+   375→   375→                        <div className="mb-1 flex items-center justify-between text-xs">
+   376→   376→                          <span className="flex items-center gap-1 text-muted-foreground">
+   377→   377→                            <Calendar className="h-3 w-3" />
+   378→   378→                            Días restantes
+   379→   379→                          </span>
+   380→   380→                          <span className="font-bold text-white">
+   381→   381→                            {daysLeft} / {sub.plan?.durationDays ?? 30}
+   382→   382→                          </span>
+   383→   383→                        </div>
+   384→   384→                        <Progress value={subProgress} className="h-2" />
+   385→   385→                        <p className="mt-1 text-[11px] text-muted-foreground">
+   386→   386→                          Vence el {formatDate(sub.endDate)}
+   387→   387→                        </p>
+   388→   388→                      </div>
+   389→   389→
+   390→   390→                      <Button
+   391→   391→                        variant="outline"
+   392→   392→                        size="sm"
+   393→   393→                        className="w-full"
+   394→   394→                        onClick={() => navigate("subscription")}
+   395→   395→                      >
+   396→   396→                        <Crown className="mr-1.5 h-3.5 w-3.5" />
+   397→   397→                        Ver planes / Renovar
+   398→   398→                      </Button>
+   399→   399→                    </div>
+   400→   400→                  ) : (
+   401→   401→                    <div className="space-y-3">
+   402→   402→                      <div className="flex items-center gap-2 text-muted-foreground">
+   403→   403→                        <AlertCircle className="h-4 w-4 text-yellow-500" />
+   404→   404→                        <span className="text-sm">Sin suscripción activa</span>
+   405→   405→                      </div>
+   406→   406→                      <p className="text-xs text-muted-foreground">
+   407→   407→                        Suscribite para desbloquear todo el catálogo en la mejor
+   408→   408→                        calidad, sin anuncios y en múltiples pantallas.
+   409→   409→                      </p>
+   410→   410→                      <Button
+   411→   411→                        size="sm"
+   412→   412→                        className="w-full"
+   413→   413→                        onClick={() => navigate("subscription")}
+   414→   414→                      >
+   415→   415→                        <Crown className="mr-1.5 h-4 w-4" />
+   416→   416→                        Suscribirse ahora
+   417→   417→                      </Button>
+   418→   418→                    </div>
+   419→   419→                  )}
+   420→   420→                </CardContent>
+   421→   421→              </Card>
+   422→   422→            </motion.div>
+   423→   423→
+   424→   424→            {/* Access token */}
+   425→   425→            <motion.div
+   426→   426→              initial={{ opacity: 0, y: 10 }}
+   427→   427→              animate={{ opacity: 1, y: 0 }}
+   428→   428→              transition={{ duration: 0.3, delay: 0.15 }}
+   429→   429→            >
+   430→   430→              <Card className="card-hover h-full border-border/60 bg-card/60 backdrop-blur">
+   431→   431→                <CardHeader>
+   432→   432→                  <CardTitle className="flex items-center gap-2 text-base">
+   433→   433→                    <CreditCard className="h-4 w-4 text-primary" />
+   434→   434→                    Token de acceso
+   435→   435→                  </CardTitle>
+   436→   436→                </CardHeader>
+   437→   437→                <CardContent>
+   438→   438→                  <p className="mb-3 text-xs text-muted-foreground">
+   439→   439→                    Usá este token para acceder sin email ni contraseña desde
+   440→   440→                    cualquier dispositivo. Mantenelo privado.
+   441→   441→                  </p>
+   442→   442→                  <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 p-2">
+   443→   443→                    <code className="flex-1 truncate font-mono text-sm font-bold tracking-wider text-primary">
+   444→   444→                      {user.token || user.accessToken || "—"}
+   445→   445→                    </code>
+   446→   446→                    <Button
+   447→   447→                      size="sm"
+   448→   448→                      variant="ghost"
+   449→   449→                      onClick={copyToken}
+   450→   450→                      className="shrink-0"
+   451→   451→                      aria-label="Copiar token"
+   452→   452→                    >
+   453→   453→                      {copied ? (
+   454→   454→                        <Check className="h-4 w-4 text-green-500" />
+   455→   455→                      ) : (
+   456→   456→                        <Copy className="h-4 w-4" />
+   457→   457→                      )}
+   458→   458→                    </Button>
+   459→   459→                  </div>
+   460→   460→                  <div className="mt-3 rounded-md bg-primary/10 p-2 text-[11px] text-muted-foreground">
+   461→   461→                    <Shield className="mb-0.5 mr-1 inline h-3 w-3 text-primary" />
+   462→   462→                    Tratá tu token como una contraseña. Si lo compartís, otros
+   463→   463→                    podrán acceder a tu cuenta.
+   464→   464→                  </div>
+   465→   465→                </CardContent>
+   466→   466→              </Card>
+   467→   467→            </motion.div>
+   468→   468→          </div>
+   469→   469→
+   470→   470→          {/* Adult verification note */}
+   471→   471→          {!user.adultVerified && (
+   472→   472→            <motion.div
+   473→   473→              initial={{ opacity: 0 }}
+   474→   474→              animate={{ opacity: 1 }}
+   475→   475→              transition={{ delay: 0.2 }}
+   476→   476→              className="mt-4"
+   477→   477→            >
+   478→   478→              <Card className="card-hover border-yellow-600/30 bg-yellow-600/5">
+   479→   479→                <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
+   480→   480→                  <ShieldAlert className="h-6 w-6 shrink-0 text-yellow-500" />
+   481→   481→                  <div className="flex-1">
+   482→   482→                    <p className="text-sm font-semibold text-yellow-500">
+   483→   483→                      Verificación de adulto pendiente
+   484→   484→                    </p>
+   485→   485→                    <p className="mt-1 text-xs text-muted-foreground">
+   486→   486→                      Tu cuenta no está verificada como adulto. La sección +18
+   487→   487→                      está bloqueada. Confirmá que tenés 18 años o más para
+   488→   488→                      desbloquearla.
+   489→   489→                    </p>
+   490→   490→                  </div>
+   491→   491→                  <Button
+   492→   492→                    variant="outline"
+   493→   493→                    size="sm"
+   494→   494→                    onClick={handleVerifyAdult}
+   495→   495→                    disabled={verifyingAdult}
+   496→   496→                    className="shrink-0 border-yellow-600/50 text-yellow-500 hover:bg-yellow-600/10 hover:text-yellow-400"
+   497→   497→                  >
+   498→   498→                    {verifyingAdult ? (
+   499→   499→                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+   500→   500→                    ) : (
+   501→   501→                      <ShieldCheck className="mr-1.5 h-3.5 w-3.5" />
+   502→   502→                    )}
+   503→   503→                    {verifyingAdult ? "Verificando..." : "Confirmo que tengo 18+"}
+   504→   504→                  </Button>
+   505→   505→                </CardContent>
+   506→   506→              </Card>
+   507→   507→            </motion.div>
+   508→   508→          )}
+   509→   509→
+   510→   510→          {/* Payment history */}
+   511→   511→          <motion.div
+   512→   512→            initial={{ opacity: 0, y: 10 }}
+   513→   513→            animate={{ opacity: 1, y: 0 }}
+   514→   514→            transition={{ duration: 0.3, delay: 0.2 }}
+   515→   515→            className="mt-4"
+   516→   516→          >
+   517→   517→            <Card className="card-hover border-border/60 bg-card/60 backdrop-blur">
+   518→   518→              <CardHeader>
+   519→   519→                <CardTitle className="flex items-center gap-2 text-base">
+   520→   520→                  <Coins className="h-4 w-4 text-primary" />
+   521→   521→                  Historial de pagos
+   522→   522→                </CardTitle>
+   523→   523→              </CardHeader>
+   524→   524→              <CardContent>
+   525→   525→                {paymentsLoading ? (
+   526→   526→                  <div className="space-y-2">
+   527→   527→                    {Array.from({ length: 3 }).map((_, i) => (
+   528→   528→                      <Skeleton key={i} className="h-14 w-full" />
+   529→   529→                    ))}
+   530→   530→                  </div>
+   531→   531→                ) : payments.length === 0 ? (
+   532→   532→                  <div className="flex flex-col items-center justify-center py-8 text-center">
+   533→   533→                    <Monitor className="mb-2 h-8 w-8 text-muted-foreground/50" />
+   534→   534→                    <p className="text-sm text-muted-foreground">
+   535→   535→                      Aún no tenés pagos registrados.
+   536→   536→                    </p>
+   537→   537→                    <Button
+   538→   538→                      variant="outline"
+   539→   539→                      size="sm"
+   540→   540→                      className="mt-3"
+   541→   541→                      onClick={() => navigate("subscription")}
+   542→   542→                    >
+   543→   543→                      Ver planes
+   544→   544→                    </Button>
+   545→   545→                  </div>
+   546→   546→                ) : (
+   547→   547→                  <div className="max-h-96 space-y-2 overflow-y-auto pr-1 [scrollbar-width:thin]">
+   548→   548→                    {payments.map((p) => (
+   549→   549→                      <div
+   550→   550→                        key={p.id}
+   551→   551→                        className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-background/40 p-3"
+   552→   552→                      >
+   553→   553→                        <div className="min-w-0 flex-1">
+   554→   554→                          <div className="flex items-center gap-2">
+   555→   555→                            <p className="truncate text-sm font-semibold text-foreground">
+   556→   556→                              {p.subscription?.plan?.name || "Suscripción"}
+   557→   557→                            </p>
+   558→   558→                            <Badge
+   559→   559→                              variant={
+   560→   560→                                p.status === "APPROVED"
+   561→   561→                                  ? "default"
+   562→   562→                                  : p.status === "PENDING"
+   563→   563→                                  ? "secondary"
+   564→   564→                                  : "destructive"
+   565→   565→                              }
+   566→   566→                              className={
+   567→   567→                                p.status === "APPROVED"
+   568→   568→                                  ? "bg-green-600/90 text-white"
+   569→   569→                                  : ""
+   570→   570→                              }
+   571→   571→                            >
+   572→   572→                              {paymentStatusLabel(p.status)}
+   573→   573→                            </Badge>
+   574→   574→                          </div>
+   575→   575→                          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+   576→   576→                            <span className="flex items-center gap-1">
+   577→   577→                              <Calendar className="h-3 w-3" />
+   578→   578→                              {formatDate(p.createdAt)}
+   579→   579→                            </span>
+   580→   580→                            <span>·</span>
+   581→   581→                            <span className="uppercase">{p.method}</span>
+   582→   582→                            {p.mercadopagoId && (
+   583→   583→                              <>
+   584→   584→                                <span>·</span>
+   585→   585→                                <span className="truncate font-mono">
+   586→   586→                                  {String(p.mercadopagoId).slice(0, 12)}
+   587→   587→                                </span>
+   588→   588→                              </>
+   589→   589→                            )}
+   590→   590→                          </div>
+   591→   591→                        </div>
+   592→   592→                        <div className="shrink-0 text-right">
+   593→   593→                          <p className="text-sm font-bold text-white">
+   594→   594→                            {formatARS(p.amount, p.currency)}
+   595→   595→                          </p>
+   596→   596→                        </div>
+   597→   597→                      </div>
+   598→   598→                    ))}
+   599→   599→                  </div>
+   600→   600→                )}
+   601→   601→              </CardContent>
+   602→   602→            </Card>
+   603→   603→          </motion.div>
+   604→   604→        </div>
+   605→   605→      </main>
+   606→   606→      <AppFooter />
+   607→   607→
+   608→   608→      {/* Edit profile dialog */}
+   609→   609→      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+   610→   610→        <DialogContent>
+   611→   611→          <DialogHeader>
+   612→   612→            <DialogTitle>Editar perfil</DialogTitle>
+   613→   613→            <DialogDescription>
+   614→   614→              Actualizá tu nombre visible y tu avatar. Los cambios se guardan
+   615→   615→              en tu cuenta.
+   616→   616→            </DialogDescription>
+   617→   617→          </DialogHeader>
+   618→   618→          <div className="space-y-4 py-2">
+   619→   619→            <div className="space-y-1.5">
+   620→   620→              <Label htmlFor="edit-name">
+   621→   621→                Nombre <span className="text-destructive">*</span>
+   622→   622→              </Label>
+   623→   623→              <Input
+   624→   624→                id="edit-name"
+   625→   625→                value={editName}
+   626→   626→                onChange={(e) => setEditName(e.target.value)}
+   627→   627→                placeholder="Tu nombre"
+   628→   628→                maxLength={50}
+   629→   629→                minLength={2}
+   630→   630→                disabled={savingEdit}
+   631→   631→                autoComplete="name"
+   632→   632→              />
+   633→   633→              <p className="text-[11px] text-muted-foreground">
+   634→   634→                Mínimo 2 caracteres.
+   635→   635→              </p>
+   636→   636→            </div>
+   637→   637→            <div className="space-y-1.5">
+   638→   638→              <Label htmlFor="edit-avatar">URL de avatar (opcional)</Label>
+   639→   639→              <div className="relative">
+   640→   640→                <LinkIcon className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+   641→   641→                <Input
+   642→   642→                  id="edit-avatar"
+   643→   643→                  value={editAvatar}
+   644→   644→                  onChange={(e) => setEditAvatar(e.target.value)}
+   645→   645→                  placeholder="https://...jpg"
+   646→   646→                  maxLength={500}
+   647→   647→                  disabled={savingEdit}
+   648→   648→                  className="pl-8"
+   649→   649→                  autoComplete="url"
+   650→   650→                  type="url"
+   651→   651→                />
+   652→   652→              </div>
+   653→   653→              <p className="text-[11px] text-muted-foreground">
+   654→   654→                Pegá una URL de imagen. Si lo dejás vacío, se usa la inicial.
+   655→   655→              </p>
+   656→   656→            </div>
+   657→   657→          </div>
+   658→   658→          <DialogFooter>
+   659→   659→            <Button
+   660→   660→              variant="outline"
+   661→   661→              onClick={() => setEditOpen(false)}
+   662→   662→              disabled={savingEdit}
+   663→   663→            >
+   664→   664→              Cancelar
+   665→   665→            </Button>
+   666→   666→            <Button
+   667→   667→              onClick={handleSaveEdit}
+   668→   668→              disabled={
+   669→   669→                savingEdit || editName.trim().length < 2
+   670→   670→              }
+   671→   671→            >
+   672→   672→              {savingEdit ? (
+   673→   673→                <>
+   674→   674→                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+   675→   675→                  Guardando...
+   676→   676→                </>
+   677→   677→              ) : (
+   678→   678→                <>
+   679→   679→                  <Check className="mr-1.5 h-4 w-4" />
+   680→   680→                  Guardar
+   681→   681→                </>
+   682→   682→              )}
+   683→   683→            </Button>
+   684→   684→          </DialogFooter>
+   685→   685→        </DialogContent>
+   686→   686→      </Dialog>
+   687→   687→    </div>
+   688→   688→  );
+   689→   689→}
+   690→   690→
+   691→   691→export default ProfileView;
+   692→   692→

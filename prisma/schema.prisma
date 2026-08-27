@@ -1,0 +1,249 @@
+// JOSE DEMO - Plataforma de streaming tipo Netflix
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  name          String
+  passwordHash  String
+  role          String   @default("USER") // USER | ADMIN
+  avatar        String?
+  banned        Boolean  @default(false)
+  adultVerified Boolean  @default(false)
+  token         String?  @unique // token de acceso simple
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  subscription  Subscription?
+  payments      Payment[]
+  watchlist     Watchlist[]
+  history       WatchHistory[]
+  reviews       Review[]
+  reactions     Reaction[]
+  profiles      Profile[]
+}
+
+// Perfiles múltiples (Netflix-style: hasta N perfiles por usuario según plan)
+model Profile {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  avatar      String   @default("🦊") // emoji o color
+  color       String   @default("#E50914")
+  isKids      Boolean  @default(false)
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  watchlist   Watchlist[]
+  history     WatchHistory[]
+
+  @@unique([userId, name])
+}
+
+model Plan {
+  id          String   @id @default(cuid())
+  name        String
+  price       Float
+  currency    String   @default("ARS")
+  durationDays Int
+  description String
+  features    String   // JSON string
+  quality     String   @default("HD") // HD | Full HD | 4K
+  screens     Int      @default(1)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  subscriptions Subscription[]
+}
+
+model Subscription {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planId       String
+  plan         Plan     @relation(fields: [planId], references: [id])
+  status       String   @default("ACTIVE") // ACTIVE | EXPIRED | CANCELLED | PENDING
+  startDate    DateTime @default(now())
+  endDate      DateTime
+  autoRenew    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  payments     Payment[]
+}
+
+model Payment {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscriptionId String?
+  subscription   Subscription? @relation(fields: [subscriptionId], references: [id])
+  amount         Float
+  currency       String   @default("ARS")
+  status         String   @default("PENDING") // PENDING | APPROVED | REJECTED | CANCELLED
+  method         String   @default("MERCADOPAGO")
+  mercadopagoId  String?
+  preferenceId   String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model Content {
+  id          String   @id @default(cuid())
+  title       String
+  description String   @default("")
+  type        String   // MOVIE | SERIES | YOUTUBE | MP4
+  url         String
+  thumbnail   String   @default("")
+  banner      String   @default("")
+  logo        String   @default("")
+  category    String   @default("General")
+  genre       String   @default("")
+  year        Int?
+  duration    Int?     // minutos
+  rating      Float    @default(0) // 0-10
+  ageRating   String   @default("ATP") // ATP | +13 | +16 | +18
+  isAdult     Boolean  @default(false)
+  featured    Boolean  @default(false)
+  trending    Boolean  @default(false)
+  views       Int      @default(0)
+  trailerUrl  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  episodes      Episode[]
+  watchlist     Watchlist[]
+  history       WatchHistory[]
+  reviews       Review[]
+  reactions    Reaction[]
+}
+
+model Series {
+  id          String   @id @default(cuid())
+  title       String
+  description String   @default("")
+  thumbnail   String   @default("")
+  banner      String   @default("")
+  logo        String   @default("")
+  genre       String   @default("")
+  year        Int?
+  ageRating   String   @default("ATP")
+  isAdult     Boolean  @default(false)
+  featured    Boolean  @default(false)
+  trending    Boolean  @default(false)
+  views       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  episodes      Episode[]
+}
+
+model Episode {
+  id          String   @id @default(cuid())
+  seriesId     String
+  series       Series   @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  contentId    String?  @unique
+  content      Content? @relation(fields: [contentId], references: [id], onDelete: SetNull)
+  seasonNumber Int      @default(1)
+  episodeNumber Int
+  title        String
+  duration     Int?
+  createdAt    DateTime @default(now())
+}
+
+model Channel {
+  id          String   @id @default(cuid())
+  name        String
+  url         String
+  logo        String   @default("")
+  category    String   @default("General")
+  isAdult     Boolean  @default(false)
+  epgId       String?
+  active      Boolean  @default(true)
+  views       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Category {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  type      String   @default("CONTENT") // CONTENT | CHANNEL
+  icon      String?
+  createdAt DateTime @default(now())
+}
+
+model Watchlist {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profileId String?
+  profile   Profile? @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  contentId String
+  content   Content  @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, contentId])
+}
+
+model WatchHistory {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profileId    String?
+  profile      Profile? @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  contentId    String
+  content      Content  @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  progress     Int      @default(0) // segundos
+  duration     Int?
+  lastWatched  DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  @@unique([userId, contentId])
+}
+
+model Setting {
+  id    String   @id @default(cuid())
+  key   String   @unique
+  value String
+  updatedAt DateTime @updatedAt
+}
+
+// Reseñas de usuarios (review con texto + rating)
+model Review {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contentId String
+  content   Content  @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  rating    Int      // 1-10
+  comment   String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, contentId])
+}
+
+// Reacciones rápidas (like/dislike)
+model Reaction {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contentId String
+  content   Content  @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  type      String   // LIKE | DISLIKE
+  createdAt DateTime @default(now())
+
+  @@unique([userId, contentId])
+}
