@@ -20,11 +20,11 @@ function createPrismaClient() {
       authToken: process.env.TURSO_AUTH_TOKEN,
     })
     const adapter = new PrismaLibSQL(libsql)
-    return new PrismaClient({ adapter, log: ['error'] })
+    return new PrismaClient({ adapter })
   }
 
   // Si es SQLite local (file:)
-  return new PrismaClient({ log: ['error'] })
+  return new PrismaClient()
 }
 
 export const db =
