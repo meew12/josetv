@@ -14,19 +14,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const result = await db.execute({
-      sql: 'SELECT * FROM "User" WHERE email = ?',
-      args: [email],
+    const user = await db.user.findUnique({
+      where: { email },
+      include: { subscription: { include: { plan: true } } },
     });
 
-    if (result.rows.length === 0) {
+    if (!user) {
       return NextResponse.json(
         { error: "Credenciales inválidas" },
         { status: 401 }
       );
     }
 
-    const user: any = result.rows[0];
     const valid = await verifyPassword(password, user.passwordHash);
     if (!valid) {
       return NextResponse.json(
@@ -49,9 +48,21 @@ export async function POST(req: NextRequest) {
         name: user.name,
         role: user.role,
         avatar: user.avatar,
-        adultVerified: Boolean(user.adultVerified),
+        adultVerified: user.adultVerified,
         token: user.token,
-        subscription: null,
+        subscription: user.subscription
+          ? {
+              status: user.subscription.status,
+              endDate: user.subscription.endDate.toISOString(),
+              plan: user.subscription.plan
+                ? {
+                    name: user.subscription.plan.name,
+                    quality: user.subscription.plan.quality,
+                    screens: user.subscription.plan.screens,
+                  }
+                : undefined,
+            }
+          : null,
       },
     });
   } catch (e: any) {
