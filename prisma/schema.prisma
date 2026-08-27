@@ -6,7 +6,7 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  url      = env("DATABASE_URL")
+  url      = "libsql://jose-demo-interf.aws-us-east-2.turso.io"
 }
 
 model User {
