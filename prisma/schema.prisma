@@ -1,6 +1,7 @@
 // JOSE DEMO - Plataforma de streaming tipo Netflix
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
 }
 
 datasource db {
